@@ -19,6 +19,13 @@ CORNER_SHORT = {
 }
 
 
+def screen_menu_label(name: str, *, is_primary: bool, index: int) -> str:
+    """Human label for a monitor. Windows display ids are not useful in a menu."""
+    if name.startswith("\\\\.\\"):
+        return "主屏幕" if is_primary else f"屏幕 {index + 1}"
+    return name or ("主屏幕" if is_primary else f"屏幕 {index + 1}")
+
+
 def next_corner(current: str, rng: random.Random) -> str:
     """Pick a different corner so a refresh is always visible."""
     choices = [corner for corner in CORNERS if corner != current]

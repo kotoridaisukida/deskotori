@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
 )
 
 from qiangjing.config import INTERVAL_MAX, INTERVAL_MIN, SIZE_MAX, SIZE_MIN
-from qiangjing.logic import CORNER_SHORT
+from qiangjing.logic import CORNER_SHORT, screen_menu_label
 from qiangjing.paths import SPRITE
 from qiangjing.theme import AMBER, AMBER_SOFT, GREEN, GREEN_SOFT, LINE, MUTED, SETTINGS_QSS
 
@@ -243,6 +243,13 @@ class SettingsWindow(QWidget):
         self.map = CornerMap()
         layout.addWidget(self.map)
 
+        self.screen_row = QHBoxLayout()
+        self.screen_row.setSpacing(6)
+        self.screen_group = QButtonGroup(self)
+        self.screen_group.setExclusive(True)
+        self.screen_buttons: dict[str, QPushButton] = {}
+        layout.addLayout(self.screen_row)
+
         time_row = QHBoxLayout()
         time_label = QLabel("刷新时间")
         time_label.setObjectName("section")
@@ -397,7 +404,51 @@ class SettingsWindow(QWidget):
         self.preset_group.setExclusive(True)
         self.preset_group.blockSignals(False)
 
+    def _sync_screens(self) -> None:
+        screens = list(QApplication.screens())
+        names = [screen.name() for screen in screens]
+        if names != getattr(self, "_screen_names", None):
+            self._screen_names = names
+            for button in self.screen_buttons.values():
+                self.screen_group.removeButton(button)
+            while self.screen_row.count():
+                item = self.screen_row.takeAt(0)
+                widget = item.widget()
+                if widget is not None:
+                    widget.deleteLater()
+            self.screen_buttons.clear()
+            if len(screens) > 1:
+                label = QLabel("屏幕")
+                label.setObjectName("section")
+                self.screen_row.addWidget(label)
+                primary = QApplication.primaryScreen()
+                for index, screen in enumerate(screens):
+                    name = screen.name()
+                    button = QPushButton(
+                        screen_menu_label(
+                            name,
+                            is_primary=screen is primary,
+                            index=index,
+                        )
+                    )
+                    button.setObjectName("preset")
+                    button.setCheckable(True)
+                    button.setCursor(Qt.CursorShape.PointingHandCursor)
+                    button.clicked.connect(
+                        lambda _checked=False, picked=name: self.controller.use_screen(picked)
+                    )
+                    self.screen_group.addButton(button)
+                    self.screen_buttons[name] = button
+                    self.screen_row.addWidget(button, 1)
+        current = self.controller.current_screen()
+        current_name = current.name() if current is not None else ""
+        for name, button in self.screen_buttons.items():
+            button.blockSignals(True)
+            button.setChecked(name == current_name)
+            button.blockSignals(False)
+
     def refresh_status(self) -> None:
+        self._sync_screens()
         text, tone = self.controller.status_parts()
         if tone == "amber":
             style = (
@@ -418,7 +469,7 @@ class SettingsWindow(QWidget):
 
     def center_on_screen(self) -> None:
         self.adjustSize()
-        screen = QApplication.primaryScreen()
+        screen = self.controller.current_screen()
         if screen is None:
             return
         area = screen.availableGeometry()

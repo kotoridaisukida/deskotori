@@ -18,7 +18,7 @@ from qiangjing.config import (
 )
 from qiangjing.fonts import build_ui_font, load_fonts
 from qiangjing.geometry import corner_position
-from qiangjing.logic import describe_status, next_corner
+from qiangjing.logic import describe_status, next_corner, screen_menu_label
 from qiangjing.paths import FONTS, ICON, SPRITE
 from qiangjing.pet import PetWindow
 from qiangjing.settings_window import SettingsWindow
@@ -46,6 +46,7 @@ class Controller:
         self._placing = False
         self.tray = None
         self._tray_menu = None
+        self._screen = None
 
         self.stay_timer = QTimer()
         self.stay_timer.setSingleShot(True)
@@ -74,18 +75,30 @@ class Controller:
 
     def start(self) -> None:
         self._started = True
+        self.app.screenAdded.connect(self._screens_changed)
+        self.app.screenRemoved.connect(self._screens_changed)
+        self._bind_screen()
         self.pet.prepare_hidden()
         self.place_pet()
         self.pet.show()
-        screen = self.app.primaryScreen()
-        if screen is not None:
-            screen.geometryChanged.connect(self.place_pet)
+        self.place_pet()
         self.pet.play_enter()
         if self.first_run or self.config.paused:
             self.show_settings()
 
+    def current_screen(self):
+        screens = self.app.screens()
+        wanted = self.config.screen_name
+        for screen in screens:
+            if wanted and screen.name() == wanted:
+                return screen
+        primary = self.app.primaryScreen()
+        if primary is not None:
+            return primary
+        return screens[0] if screens else None
+
     def area_tuple(self) -> tuple[int, int, int, int]:
-        screen = self.app.primaryScreen()
+        screen = self.current_screen()
         if screen is None:
             return (0, 0, 1280, 800)
         rect = screen.geometry()
@@ -96,6 +109,10 @@ class Controller:
             return
         self._placing = True
         try:
+            screen = self.current_screen()
+            handle = self.pet.windowHandle()
+            if handle is not None and screen is not None:
+                handle.setScreen(screen)
             self.pet.set_corner(self.corner)
             if self.pet.width() <= 0 or self.pet.height() <= 0:
                 return
@@ -108,6 +125,36 @@ class Controller:
             self.pet.move(x, y)
         finally:
             self._placing = False
+
+    def use_screen(self, name: str) -> None:
+        if not isinstance(name, str) or name == self.config.screen_name:
+            return
+        self.config.screen_name = name
+        self.config = self.store.save(self.config)
+        self._bind_screen()
+        if self._started:
+            self.place_pet()
+        if self.settings.isVisible():
+            self.settings.center_on_screen()
+        self.settings.refresh_status()
+
+    def _bind_screen(self) -> None:
+        screen = self.current_screen()
+        if screen is self._screen:
+            return
+        if self._screen is not None:
+            try:
+                self._screen.geometryChanged.disconnect(self.place_pet)
+            except RuntimeError:
+                pass
+        self._screen = screen
+        if screen is not None:
+            screen.geometryChanged.connect(self.place_pet)
+
+    def _screens_changed(self, *_args) -> None:
+        self._bind_screen()
+        if self._started:
+            self.place_pet()
 
     def status_parts(self) -> tuple[str, str]:
         if self.config.paused:
@@ -231,13 +278,35 @@ class Controller:
     def _make_menu(self) -> QMenu:
         menu = QMenu()
         menu.setStyleSheet(MENU_QSS)
+        self._fill_menu(menu)
+        menu.aboutToShow.connect(lambda menu=menu: self._fill_menu(menu))
+        return menu
+
+    def _fill_menu(self, menu: QMenu) -> None:
+        menu.clear()
         menu.addAction("打开设置", self.show_settings)
         menu.addAction("现在就换", self.jump_random)
-        pause_action = menu.addAction(self._pause_label(), self.toggle_pause)
+        menu.addAction(self._pause_label(), self.toggle_pause)
+        screens = list(self.app.screens())
+        if len(screens) > 1:
+            menu.addSeparator()
+            current = self.current_screen()
+            primary = self.app.primaryScreen()
+            for index, screen in enumerate(screens):
+                name = screen.name()
+                label = screen_menu_label(
+                    name,
+                    is_primary=screen is primary,
+                    index=index,
+                )
+                action = menu.addAction(
+                    label,
+                    lambda _checked=False, picked=name: self.use_screen(picked),
+                )
+                action.setCheckable(True)
+                action.setChecked(current is not None and current.name() == name)
         menu.addSeparator()
         menu.addAction("退出", self.quit)
-        menu.aboutToShow.connect(lambda action=pause_action: action.setText(self._pause_label()))
-        return menu
 
     def _pause_label(self) -> str:
         return "继续" if self.config.paused else "暂停"

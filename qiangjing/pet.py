@@ -224,10 +224,15 @@ def rotate_quarters(src: QPixmap, turns: int) -> QPixmap:
     turns &= 3
     if turns == 0 or src.isNull():
         return src
+    # 屏幕缩放不是 100% 时，图上带着设备像素比。画的时候要按真实像素转，
+    # 不然平移用的是像素、坐标系却是逻辑像素，另外三个角会离屏幕边空出一截。
+    dpr = src.devicePixelRatio() or 1.0
     image = src.toImage().convertToFormat(QImage.Format.Format_ARGB32_Premultiplied)
+    image.setDevicePixelRatio(1.0)
     width, height = image.width(), image.height()
     out_w, out_h = (width, height) if turns == 2 else (height, width)
     out = QImage(out_w, out_h, QImage.Format.Format_ARGB32_Premultiplied)
+    out.setDevicePixelRatio(1.0)
     out.fill(0)
     painter = QPainter(out)
     painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, False)
@@ -244,7 +249,7 @@ def rotate_quarters(src: QPixmap, turns: int) -> QPixmap:
     painter.drawImage(0, 0, image)
     painter.end()
     pixmap = QPixmap.fromImage(out)
-    pixmap.setDevicePixelRatio(src.devicePixelRatio() or 1.0)
+    pixmap.setDevicePixelRatio(dpr)
     return pixmap
 
 

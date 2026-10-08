@@ -20,6 +20,7 @@ class PetConfig:
     size: int = 300
     peek: float = 0.0
     paused: bool = False
+    screen_name: str = ""
 
     def normalized(self) -> PetConfig:
         return PetConfig(
@@ -27,6 +28,7 @@ class PetConfig:
             size=_clamp_int(self.size, SIZE_MIN, SIZE_MAX, 300),
             peek=_clamp_float(self.peek),
             paused=self.paused if isinstance(self.paused, bool) else False,
+            screen_name=self.screen_name if isinstance(self.screen_name, str) else "",
         )
 
 
@@ -52,6 +54,8 @@ class ConfigStore:
             config.peek = data["peek"]
         if "paused" in data and isinstance(data["paused"], bool):
             config.paused = data["paused"]
+        if isinstance(data.get("screen_name"), str):
+            config.screen_name = data["screen_name"]
         return config.normalized()
 
     def save(self, config: PetConfig) -> PetConfig:

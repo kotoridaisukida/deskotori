@@ -11,7 +11,7 @@ sys.path.insert(0, str(ROOT))
 
 from qiangjing.config import ConfigStore, PetConfig
 from qiangjing.geometry import CORNERS, QUARTER_TURNS, corner_position, quarter_turns
-from qiangjing.logic import describe_status, format_seconds, next_corner
+from qiangjing.logic import describe_status, format_seconds, next_corner, screen_menu_label
 from qiangjing.paths import SPRITE
 
 
@@ -75,6 +75,14 @@ class LogicTest(unittest.TestCase):
         self.assertEqual(format_seconds(61), "1 分 1 秒")
         self.assertEqual(format_seconds(90), "1 分 30 秒")
 
+    def test_screen_menu_label(self):
+        self.assertEqual(screen_menu_label(r"\\.\DISPLAY1", is_primary=True, index=0), "主屏幕")
+        self.assertEqual(screen_menu_label(r"\\.\DISPLAY2", is_primary=False, index=1), "屏幕 2")
+        self.assertEqual(
+            screen_menu_label("BenQ EW3270U", is_primary=False, index=1),
+            "BenQ EW3270U",
+        )
+
     def test_status_copy(self):
         self.assertEqual(
             describe_status("tl", paused=True, phase="idle", remaining_ms=5000)[0],
@@ -112,8 +120,17 @@ class ConfigTest(unittest.TestCase):
             self.assertEqual(saved.size, 160)
             self.assertEqual(saved.peek, 1.0)
             self.assertTrue(saved.paused)
+            self.assertEqual(saved.screen_name, "")
             loaded = store.load()
             self.assertEqual(loaded, saved)
+
+    def test_screen_name_roundtrip(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "config.json"
+            store = ConfigStore(path)
+            saved = store.save(PetConfig(screen_name="BenQ EW3270U"))
+            self.assertEqual(store.load().screen_name, "BenQ EW3270U")
+            self.assertEqual(saved.screen_name, "BenQ EW3270U")
 
     def test_partial_and_corrupt(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -167,6 +184,28 @@ class RotationTest(unittest.TestCase):
             self.assertEqual((result.width(), result.height()), (out_w, out_h), turns)
             self.assertEqual(result.pixelColor(x, y), QColor(255, 0, 0, 255), turns)
             self.assertEqual(result.pixelColor(x, y).alpha(), 255, turns)
+
+    def test_scaled_screen_keeps_every_edge_flush(self):
+        from PySide6.QtGui import QColor, QImage, QPixmap
+
+        from qiangjing.pet import rotate_quarters
+
+        width, height = 8, 6
+        image = QImage(width, height, QImage.Format.Format_ARGB32)
+        image.fill(QColor(10, 20, 30, 255))
+        source = QPixmap.fromImage(image)
+        source.setDevicePixelRatio(2)
+        for turns, out_w, out_h in ((1, height, width), (2, width, height), (3, height, width)):
+            result = rotate_quarters(source, turns)
+            self.assertEqual(result.devicePixelRatio(), 2, turns)
+            out = result.toImage()
+            self.assertEqual((out.width(), out.height()), (out_w, out_h), turns)
+            for x in range(out.width()):
+                self.assertEqual(out.pixelColor(x, 0).alpha(), 255, turns)
+                self.assertEqual(out.pixelColor(x, out.height() - 1).alpha(), 255, turns)
+            for y in range(out.height()):
+                self.assertEqual(out.pixelColor(0, y).alpha(), 255, turns)
+                self.assertEqual(out.pixelColor(out.width() - 1, y).alpha(), 255, turns)
 
     def test_sprite_right_angle_is_solid(self):
         from PySide6.QtGui import QImage
